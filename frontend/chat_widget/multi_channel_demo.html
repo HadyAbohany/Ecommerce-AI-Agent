@@ -1,0 +1,192 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Multi-Channel Demo — One Agent, Any Channel</title>
+  <style>
+    * { box-sizing: border-box; }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+      background: #eceff3;
+      margin: 0;
+      padding: 30px 16px;
+    }
+    #page-title {
+      text-align: center;
+      margin-bottom: 6px;
+      color: #1a1a2e;
+    }
+    #page-subtitle {
+      text-align: center;
+      color: #667;
+      margin-bottom: 28px;
+      font-size: 14px;
+    }
+    #channels-row {
+      display: flex;
+      justify-content: center;
+      gap: 24px;
+      flex-wrap: wrap;
+    }
+
+    .channel-card {
+      width: 340px;
+      height: 560px;
+      border-radius: 14px;
+      overflow: hidden;
+      display: flex;
+      flex-direction: column;
+      box-shadow: 0 4px 18px rgba(0,0,0,0.12);
+    }
+    .channel-label {
+      text-align: center;
+      font-size: 13px;
+      font-weight: 600;
+      color: #556;
+      margin-bottom: 8px;
+      text-transform: uppercase;
+      letter-spacing: 0.04em;
+    }
+    .channel-wrapper { display: flex; flex-direction: column; align-items: center; }
+
+    .messages {
+      flex: 1;
+      overflow-y: auto;
+      padding: 14px;
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+      scroll-behavior: smooth;
+    }
+    .bubble {
+      max-width: 78%;
+      padding: 9px 13px;
+      font-size: 13.5px;
+      line-height: 1.4;
+      white-space: pre-wrap;
+      word-break: break-word;
+    }
+    .bubble.user { align-self: flex-end; }
+    .bubble.agent { align-self: flex-start; }
+    .bubble.loading { align-self: flex-start; font-style: italic; opacity: 0.7; }
+    .bubble.error { align-self: flex-start; background: #fdecea !important; color: #a33a2c !important; }
+
+    .input-row {
+      display: flex;
+      gap: 6px;
+      padding: 10px;
+    }
+    .input-row input {
+      flex: 1;
+      border: none;
+      outline: none;
+      padding: 10px 12px;
+      font-size: 13.5px;
+      border-radius: 20px;
+    }
+    .input-row button {
+      border: none;
+      cursor: pointer;
+      padding: 10px 16px;
+      border-radius: 20px;
+      font-size: 13px;
+      font-weight: 600;
+    }
+
+    /* ── Website skin (matches the original widget) ── */
+    .skin-website { background: #fff; }
+    .skin-website .header { background: #1a1a2e; color: #fff; padding: 14px 16px; font-weight: 600; font-size: 14px; }
+    .skin-website .bubble.user { background: #1a1a2e; color: #fff; border-radius: 14px 14px 4px 14px; }
+    .skin-website .bubble.agent { background: #eef0f3; color: #1a1a2e; border-radius: 14px 14px 14px 4px; }
+    .skin-website .input-row { background: #fff; border-top: 1px solid #eee; }
+    .skin-website .input-row input { background: #f4f5f7; }
+    .skin-website .input-row button { background: #1a1a2e; color: #fff; }
+
+    /* ── WhatsApp-style skin (colors/layout only — no official logos/assets) ── */
+    .skin-whatsapp { background: #e5ddd5; }
+    .skin-whatsapp .header {
+      background: #075e54; color: #fff; padding: 14px 16px;
+      font-weight: 600; font-size: 14px; display: flex; align-items: center; gap: 10px;
+    }
+    .skin-whatsapp .header .avatar {
+      width: 30px; height: 30px; border-radius: 50%; background: #128c7e;
+      display: flex; align-items: center; justify-content: center; font-size: 14px;
+    }
+    .skin-whatsapp .bubble.user { background: #dcf8c6; color: #1a1a1a; border-radius: 8px; }
+    .skin-whatsapp .bubble.agent { background: #fff; color: #1a1a1a; border-radius: 8px; }
+    .skin-whatsapp .input-row { background: #f0f0f0; }
+    .skin-whatsapp .input-row input { background: #fff; }
+    .skin-whatsapp .input-row button { background: #075e54; color: #fff; }
+
+    /* ── Messenger-style skin (colors/layout only — no official logos/assets) ── */
+    .skin-messenger { background: #fff; }
+    .skin-messenger .header {
+      background: #fff; color: #050505; padding: 14px 16px; font-weight: 700; font-size: 14px;
+      border-bottom: 1px solid #eee; display: flex; align-items: center; gap: 10px;
+    }
+    .skin-messenger .header .avatar {
+      width: 30px; height: 30px; border-radius: 50%;
+      background: linear-gradient(135deg, #00b2ff, #006aff);
+    }
+    .skin-messenger .bubble.user {
+      background: linear-gradient(135deg, #00b2ff, #006aff);
+      color: #fff; border-radius: 18px;
+    }
+    .skin-messenger .bubble.agent { background: #f0f0f0; color: #050505; border-radius: 18px; }
+    .skin-messenger .input-row { background: #fff; border-top: 1px solid #eee; }
+    .skin-messenger .input-row input { background: #f0f0f0; }
+    .skin-messenger .input-row button {
+      background: linear-gradient(135deg, #00b2ff, #006aff); color: #fff;
+    }
+  </style>
+</head>
+<body>
+
+  <h1 id="page-title">One Agent. Any Channel.</h1>
+  <p id="page-subtitle">
+    Same backend, same /chat API — three completely different front-ends talking to it live.
+  </p>
+
+  <div id="channels-row">
+
+    <div class="channel-wrapper">
+      <div class="channel-label">Website</div>
+      <div class="channel-card skin-website" data-session="demo-website">
+        <div class="header">Store Assistant</div>
+        <div class="messages"></div>
+        <div class="input-row">
+          <input type="text" placeholder="Ask about products, orders...">
+          <button>Send</button>
+        </div>
+      </div>
+    </div>
+
+    <div class="channel-wrapper">
+      <div class="channel-label">WhatsApp-style</div>
+      <div class="channel-card skin-whatsapp" data-session="demo-whatsapp">
+        <div class="header"><div class="avatar">🛍️</div> Store Assistant</div>
+        <div class="messages"></div>
+        <div class="input-row">
+          <input type="text" placeholder="Type a message">
+          <button>➤</button>
+        </div>
+      </div>
+    </div>
+
+    <div class="channel-wrapper">
+      <div class="channel-label">Messenger-style</div>
+      <div class="channel-card skin-messenger" data-session="demo-messenger">
+        <div class="header"><div class="avatar"></div> Store Assistant</div>
+        <div class="messages"></div>
+        <div class="input-row">
+          <input type="text" placeholder="Aa">
+          <button>➤</button>
+        </div>
+      </div>
+    </div>
+
+  </div>
+
+  <script src="multi_channel_demo.js"></script>
+</body>
+</html>
