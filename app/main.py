@@ -18,6 +18,7 @@ Then test with:
 """
 
 from fastapi import FastAPI, HTTPException
+from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
 
 from app.agent.core import run_agent
@@ -27,6 +28,18 @@ app = FastAPI(
     title="E-commerce AI Agent",
     description="RAG + database tools + order actions, exposed via one channel-agnostic API.",
     version="0.1.0",
+)
+
+# Needed so the browser-based chat widget (Step 9) can call this API
+# from a different origin (e.g. opening index.html as a local file, or
+# serving the frontend from a different port). allow_origins=["*"] is
+# fine for local development/demo purposes; restrict this to specific
+# domains before any real production deployment.
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_methods=["*"],
+    allow_headers=["*"],
 )
 
 
