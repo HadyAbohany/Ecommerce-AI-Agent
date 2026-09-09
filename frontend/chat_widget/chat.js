@@ -18,13 +18,52 @@ const inputEl = document.getElementById("message-input");
 const sendBtn = document.getElementById("send-btn");
 const resetBtn = document.getElementById("reset-btn");
 
+function formatTime(date) {
+  return date.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
+}
+
 function appendMessage(text, className) {
-  const div = document.createElement("div");
-  div.className = `msg ${className}`;
-  div.textContent = text;
-  messagesEl.appendChild(div);
+  const wrap = document.createElement("div");
+  wrap.className = `msg-wrap ${className}`;
+
+  const bubble = document.createElement("div");
+  bubble.className = `msg ${className}`;
+
+  if (className === "agent" && typeof marked !== "undefined") {
+    // Agent replies are markdown (bold labels, bullet lists, etc.) — render
+    // them properly instead of dumping raw **asterisks** to the page.
+    bubble.innerHTML = marked.parse(text);
+  } else {
+    bubble.textContent = text;
+  }
+
+  wrap.appendChild(bubble);
+
+  if (className === "user" || className === "agent") {
+    const time = document.createElement("div");
+    time.className = "msg-time";
+    time.textContent = formatTime(new Date());
+    wrap.appendChild(time);
+  }
+
+  messagesEl.appendChild(wrap);
   messagesEl.scrollTop = messagesEl.scrollHeight;
-  return div;
+  return wrap;
+}
+
+function appendTypingIndicator() {
+  const wrap = document.createElement("div");
+  wrap.className = "msg-wrap loading";
+
+  const bubble = document.createElement("div");
+  bubble.className = "msg loading";
+  bubble.innerHTML =
+    '<span class="typing-dot"></span><span class="typing-dot"></span><span class="typing-dot"></span>';
+
+  wrap.appendChild(bubble);
+  messagesEl.appendChild(wrap);
+  messagesEl.scrollTop = messagesEl.scrollHeight;
+  return wrap;
 }
 
 async function sendMessage() {
@@ -36,7 +75,7 @@ async function sendMessage() {
   inputEl.disabled = true;
   sendBtn.disabled = true;
 
-  const loadingEl = appendMessage("...", "loading");
+  const loadingEl = appendTypingIndicator();
 
   try {
     const response = await fetch(`${API_BASE}/chat`, {
@@ -61,7 +100,7 @@ async function sendMessage() {
     console.error("Chat request failed:", err);
   } finally {
     inputEl.disabled = false;
-    sendBtn.disabled = false;
+    sendBtn.disabled = inputEl.value.trim().length === 0;
     inputEl.focus();
   }
 }
@@ -82,7 +121,13 @@ sendBtn.addEventListener("click", sendMessage);
 inputEl.addEventListener("keydown", (e) => {
   if (e.key === "Enter") sendMessage();
 });
+inputEl.addEventListener("input", () => {
+  sendBtn.disabled = inputEl.value.trim().length === 0;
+});
 resetBtn.addEventListener("click", resetConversation);
+
+// Send button starts disabled since the input starts empty.
+sendBtn.disabled = true;
 
 // Initial greeting
 appendMessage("Hi! Ask me about products, orders, shipping, or returns.", "agent");
