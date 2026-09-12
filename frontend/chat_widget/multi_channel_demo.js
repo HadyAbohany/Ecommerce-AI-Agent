@@ -9,24 +9,28 @@
  * itself, not just visually.
  *
  * Each panel gets its OWN session_id (set via data-session on the
- * .channel-card element), so the three demo conversations are
- * completely independent of each other, even though they're all
- * hitting the same agent.
+ * .channel-card element), so typing directly into one panel's input
+ * keeps that panel's conversation independent of the others.
  *
  * Two ways to trigger a message on a panel:
  *   - typing into that panel's own input and hitting Send/Enter
- *   - the shared "Ask all three" bar above the panels, which fires
- *     the exact same text at all three sessions at once (see
- *     wireAskAll() at the bottom) — this is the "same backend, three
- *     skins" demo moment.
+ *     (makes its own /chat call, using that panel's own session_id)
+ *   - the shared "Ask all three" bar above the panels — this makes
+ *     ONE /chat call (under a separate shared session_id, so it never
+ *     mixes into any panel's individual conversation history) and then
+ *     mirrors that single question + single answer into all three
+ *     panels at once. This guarantees the three panels show the exact
+ *     same reply, and costs the same API quota as asking one question
+ *     — not three — which matters given Gemini's free-tier daily limit.
  */
 
 const API_BASE = "http://127.0.0.1:8000";
+const ASK_ALL_SESSION_ID = "demo-ask-all-shared";
 
-// Registry of { sessionId, sendMessage(text) } so the shared
-// "ask all three" bar can trigger every panel without each panel
-// needing to know the others exist.
-const channelSenders = [];
+// Registry of per-panel display helpers so the shared "ask all three"
+// bar can render into every panel without making its own network call
+// per panel, and without each panel needing to know the others exist.
+const channelPanels = [];
 
 function renderMarkdown(text) {
   // marked is loaded from a CDN <script> tag in the HTML. Fall back
@@ -68,24 +72,30 @@ function initChannel(cardEl) {
     return div;
   }
 
-  async function sendMessage(presetText) {
-    const text = (presetText !== undefined ? presetText : inputEl.value).trim();
+  function pulseCard() {
+    cardEl.classList.remove("pulse");
+    void cardEl.offsetWidth; // restart animation if triggered again quickly
+    cardEl.classList.add("pulse");
+  }
+
+  function setInputBusy(busy) {
+    inputEl.disabled = busy;
+    sendBtn.disabled = busy;
+  }
+
+  // Normal path: this panel's own input/send button, hitting /chat
+  // directly under this panel's own session_id.
+  async function sendMessage() {
+    const text = inputEl.value.trim();
     if (!text) return;
 
     sendBtn.classList.remove("bounce");
-    void sendBtn.offsetWidth; // restart animation if clicked again quickly
+    void sendBtn.offsetWidth;
     sendBtn.classList.add("bounce");
 
-    if (presetText !== undefined) {
-      cardEl.classList.remove("pulse");
-      void cardEl.offsetWidth;
-      cardEl.classList.add("pulse");
-    }
-
     appendMessage(text, "user");
-    if (presetText === undefined) inputEl.value = "";
-    inputEl.disabled = true;
-    sendBtn.disabled = true;
+    inputEl.value = "";
+    setInputBusy(true);
 
     const loadingEl = appendTypingIndicator();
 
@@ -106,36 +116,83 @@ function initChannel(cardEl) {
       appendMessage("Sorry, something went wrong reaching the assistant.", "error");
       console.error(`[${sessionId}] chat request failed:`, err);
     } finally {
-      inputEl.disabled = false;
-      sendBtn.disabled = false;
+      setInputBusy(false);
     }
   }
 
-  sendBtn.addEventListener("click", () => sendMessage());
+  sendBtn.addEventListener("click", sendMessage);
   inputEl.addEventListener("keydown", (e) => {
     if (e.key === "Enter") sendMessage();
   });
 
   appendMessage("Hi! Ask me about products, orders, shipping, or returns.", "agent");
 
-  channelSenders.push({ sessionId, sendMessage });
+  // Exposed for the shared "Ask all three" bar — no network call here,
+  // just rendering into this panel's own message list.
+  channelPanels.push({
+    sessionId,
+    showUserMessage: (text) => {
+      pulseCard();
+      appendMessage(text, "user");
+    },
+    showTyping: () => appendTypingIndicator(),
+    showAgentReply: (loadingEl, replyText) => {
+      loadingEl.remove();
+      appendMessage(replyText, "agent", { markdown: true });
+    },
+    showError: (loadingEl) => {
+      loadingEl.remove();
+      appendMessage("Sorry, something went wrong reaching the assistant.", "error");
+    },
+  });
 }
 
-// Wires up the shared "Ask all three" bar: one input + button that
-// fires the identical message at every registered channel at once.
+// Wires up the shared "Ask all three" bar. Makes exactly ONE /chat
+// call (under a dedicated shared session_id, separate from any
+// individual panel's session) and mirrors that single question and
+// single answer into all three panels — same agent, same answer,
+// three skins, one API call.
 function wireAskAll() {
   const askAllInput = document.getElementById("ask-all-input");
   const askAllBtn = document.getElementById("ask-all-btn");
   if (!askAllInput || !askAllBtn) return;
 
-  function askAll() {
+  async function askAll() {
     const text = askAllInput.value.trim();
     if (!text) return;
+
     askAllInput.value = "";
+    askAllInput.disabled = true;
+    askAllBtn.disabled = true;
     askAllBtn.classList.remove("bounce");
     void askAllBtn.offsetWidth;
     askAllBtn.classList.add("bounce");
-    channelSenders.forEach(({ sendMessage }) => sendMessage(text));
+
+    // Show the question + a typing indicator in every panel immediately,
+    // before the single network call even resolves.
+    const loadingElsByPanel = channelPanels.map((panel) => {
+      panel.showUserMessage(text);
+      return panel.showTyping();
+    });
+
+    try {
+      const response = await fetch(`${API_BASE}/chat`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ message: text, session_id: ASK_ALL_SESSION_ID }),
+      });
+
+      if (!response.ok) throw new Error(`Server returned ${response.status}`);
+
+      const data = await response.json();
+      channelPanels.forEach((panel, i) => panel.showAgentReply(loadingElsByPanel[i], data.reply));
+    } catch (err) {
+      channelPanels.forEach((panel, i) => panel.showError(loadingElsByPanel[i]));
+      console.error("[ask-all] chat request failed:", err);
+    } finally {
+      askAllInput.disabled = false;
+      askAllBtn.disabled = false;
+    }
   }
 
   askAllBtn.addEventListener("click", askAll);
@@ -148,6 +205,6 @@ function wireAskAll() {
 // channel later is just adding one more .channel-card element with
 // its own data-session; no JS changes needed. It'll automatically
 // pick up "Ask all three" too, since that just fans out to whatever
-// is in channelSenders.
+// is in channelPanels.
 document.querySelectorAll(".channel-card").forEach(initChannel);
 wireAskAll();
